@@ -1,4 +1,4 @@
-# DDEV Manager Pro
+# DDEV Manager
 
 Tool di gestione grafica per progetti DDEV — scritto in Python/Tkinter.
 Avvia, stoppa, monitora e configura automaticamente i tuoi progetti DDEV da un'unica interfaccia.
