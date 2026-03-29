@@ -35,7 +35,7 @@ python3 ddev_starter.py
 
 ---
 
-## Architettura DDEV (scoperte tecniche chiave)
+## Architettura DDEV
 
 ### Container e rete Docker
 
