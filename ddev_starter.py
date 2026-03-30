@@ -380,6 +380,15 @@ class DDEVManager:
                              fieldbackground=c['tree_bg'])
         self.style.map('Treeview', background=[('selected', c['tree_selected'])])
         self.style.configure('TEntry', fieldbackground=c['entry_bg'], foreground=c['entry_fg'])
+        
+        # Combobox style
+        self.style.configure('TCombobox', fieldbackground=c['entry_bg'], foreground=c['entry_fg'], background=c['bg'])
+        self.style.map('TCombobox', 
+                       fieldbackground=[('readonly', c['entry_bg'])], 
+                       foreground=[('readonly', c['entry_fg'])],
+                       selectbackground=[('readonly', c['tree_selected'])],
+                       selectforeground=[('readonly', c['entry_fg'])])
+                       
         self.log_text.configure(bg=c['log_bg'], fg=c['fg'], insertbackground=c['fg'])
         for k in ['info', 'success', 'error', 'warning']:
             self.log_text.tag_config(k, foreground=c[k])
