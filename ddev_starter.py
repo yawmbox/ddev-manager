@@ -339,7 +339,7 @@ class DDEVManager:
         lbl.pack(pady=(0, 10))
         
         txt = scrolledtext.ScrolledText(f, wrap='word', bg=c['entry_bg'], fg=c['entry_fg'], font=('sans-serif', 11))
-        txt.insert('max', self._("help_text"))
+        txt.insert('end', self._("help_text"))
         txt.config(state='disabled')
         txt.pack(fill='both', expand=True)
         
