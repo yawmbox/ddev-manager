@@ -1,5 +1,7 @@
 # DDEV Manager Pro
 
+![DDEV Manager Pro Screenshot](screenshot.png)
+
 Tool di gestione grafica per progetti DDEV — scritto in Python/Tkinter.
 Avvia, stoppa, monitora e configura automaticamente i tuoi progetti DDEV da un'unica interfaccia.
 
@@ -28,9 +30,12 @@ python3 ddev_starter.py
 | **Adminer** | Apre direttamente sul database del progetto (`?db=NOME`) |
 | **PHPMyAdmin** | Auto-scoperta porta dalla variabile `HTTPS_EXPOSE` del container |
 | **Debug URL** | Diagnostica completa dei container e delle loro variabili d'ambiente |
-| **Poweroff** | Reset completo del router DDEV (`ddev poweroff`) |
+| **Net Reset** | Reset completo del router DDEV (`ddev poweroff`) |
 | **Dettagli progetto** | Visualizzazione read-only da menu tasto destro → `ℹ️ Dettagli` |
 | **Dark/Light Mode** | Persistente tra sessioni |
+| **Multilingua** | Supporto per IT, EN, FR, ES, DE con `locales.json` e auto-detect sistema |
+| **Help Guide** | Dialog "❔ Help" con istruzioni rapide d'uso |
+| **Launcher** | Tasto `+ Launcher` (`- Launcher`) per aggiungere comodamente l'app al menù applicazioni |
 | **Lock UI** | Tutti i pulsanti si disabilitano durante le operazioni, si riabilitano al termine |
 
 ---
@@ -140,6 +145,7 @@ Il tool salva la configurazione in `~/.ddev_manager.json`:
 ```json
 {
   "theme": "dark",
+  "lang": "it",
   "projects": {
     "nomeprogetto": {
       "path": "/percorso/progetto",
@@ -175,7 +181,7 @@ sudo usermod -aG docker $USER
 ```
 
 ### Rete DDEV bloccata
-Usare il pulsante **⚡ Poweroff** nel tool, oppure:
+Usare il pulsante **⚡ Net Reset** nel tool, oppure:
 ```bash
 ddev poweroff
 ```

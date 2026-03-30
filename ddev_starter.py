@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# DDEV Manager Pro - Versione Stabile Definitiva (v5)
+# DDEV Manager Pro - Versione Stabile Definitiva (v6)
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
@@ -8,6 +8,9 @@ import json
 import webbrowser
 import threading
 from pathlib import Path
+import locale
+import sys
+import os
 
 THEMES = {
     'light': {
@@ -24,12 +27,12 @@ THEMES = {
     }
 }
 
-
 class DDEVManager:
     def __init__(self, root):
         self.root = root
         self.root.withdraw()
         self.root.title("DDEV Project Manager Pro")
+        
         # Icona finestra
         icon_path = Path(__file__).parent / "icon.png"
         if icon_path.exists():
@@ -38,19 +41,58 @@ class DDEVManager:
                 self.root.iconphoto(True, img)
             except Exception:
                 pass
+                
         self.width, self.height = 1100, 750
         self.config_path = Path.home() / ".ddev_manager.json"
+        
+        # Locales
+        self.locales = self.load_locales()
+        
         cfg = self.load_config()
         self.projects = cfg.get('projects', {})
         self.current_theme = cfg.get('theme', 'dark')
-        self.all_btns = []   # tutti i pulsanti che si disabilitano durante operazioni
+        
+        # Autodetect language
+        self.langs = list(self.locales.keys()) if self.locales else ['it', 'en']
+        default_lang = 'en'
+        try:
+            sys_lang = locale.getlocale()[0] or locale.getdefaultlocale()[0]
+            if sys_lang:
+                sys_lang = sys_lang[:2].lower()
+                if sys_lang in self.langs:
+                    default_lang = sys_lang
+        except:
+            pass
+        self.current_lang = cfg.get('lang', default_lang)
+        if self.current_lang not in self.langs:
+            self.current_lang = self.langs[0] if self.langs else 'en'
+            
+        self.all_btns = []
         self.btns = {}
+        self.headers_dict = {}
+        self.translatable_labels = [] # [(widget, trans_key)]
+        
         self.style = ttk.Style()
         self.setup_ui()
         self.apply_theme(self.current_theme)
         self.center_window()
         self.root.deiconify()
         self.refresh_list()
+
+    def _(self, key):
+        """Traduzione rapida in base alla lingua corrente."""
+        return self.locales.get(self.current_lang, {}).get(key, 
+               self.locales.get('it', {}).get(key, key))
+
+    def load_locales(self):
+        try:
+            loc_path = Path(__file__).parent / "locales.json"
+            if loc_path.exists():
+                with open(loc_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Errore caricamento locales: {e}")
+        return {}
 
     def center_window(self):
         self.root.update_idletasks()
@@ -69,14 +111,14 @@ class DDEVManager:
 
     def save_config(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:
-            json.dump({'theme': self.current_theme, 'projects': self.projects}, f, indent=2)
+            json.dump({'theme': self.current_theme, 'lang': self.current_lang, 'projects': self.projects}, f, indent=2)
 
     # ─── UI Setup ────────────────────────────────────────────────────────────
 
-    def _reg_btn(self, parent, text, cmd, **pack_opts):
-        """Crea un pulsante, lo registra in all_btns e lo mostra."""
+    def _reg_btn(self, parent, tkey, cmd, **pack_opts):
+        text = self._(tkey)
         b = ttk.Button(parent, text=text, command=cmd)
-        self.all_btns.append(b)
+        self.all_btns.append((b, tkey))
         b.pack(**pack_opts)
         return b
 
@@ -84,17 +126,51 @@ class DDEVManager:
         # ── Toolbar ──
         tb = ttk.Frame(self.root, padding=10)
         tb.pack(fill='x')
-        self._reg_btn(tb, "➕ Nuovo",     self.add_project_dialog,          side='left', padx=5)
-        self._reg_btn(tb, "🔄 Refresh",   self.refresh_list,                side='left', padx=5)
-        ttk.Separator(tb, orient='vertical').pack(side='left', fill='y', padx=10)
-        self._reg_btn(tb, "🚀 Start Tutti", lambda: self.bulk_action('start'), side='left', padx=5)
-        self._reg_btn(tb, "🛑 Stop Tutti",  lambda: self.bulk_action('stop'),  side='left', padx=5)
-        ttk.Separator(tb, orient='vertical').pack(side='left', fill='y', padx=10)
-        self._reg_btn(tb, "⚡ Poweroff",    self.ddev_poweroff,              side='left', padx=5)
-        # Esci e Tema: sempre attivi, non in all_btns
-        ttk.Button(tb, text="❌ Esci",   command=self.root.quit).pack(side='right', padx=5)
-        ttk.Button(tb, text="🌓 Tema",   command=self.toggle_theme).pack(side='right', padx=5)
-        self._reg_btn(tb, "🔍 Debug URL", self.debug_selected,              side='right', padx=5)
+        
+        # Left Side
+        left_f = ttk.Frame(tb)
+        left_f.pack(side='left', fill='y')
+        self._reg_btn(left_f, "btn_new",       self.add_project_dialog, side='left', padx=2)
+        self._reg_btn(left_f, "btn_refresh",   self.refresh_list,       side='left', padx=2)
+        ttk.Separator(left_f, orient='vertical').pack(side='left', fill='y', padx=8)
+        self._reg_btn(left_f, "btn_poweroff",  self.ddev_poweroff,      side='left', padx=2)
+        
+        # Right Side
+        right_f = ttk.Frame(tb)
+        right_f.pack(side='right', fill='y')
+        
+        # Exit & Theme
+        e_btn = ttk.Button(right_f, text=self._("btn_exit"), command=self.root.quit)
+        t_btn = ttk.Button(right_f, text=self._("btn_theme"), command=self.toggle_theme)
+        db_btn = ttk.Button(right_f, text=self._("btn_debug"), command=self.debug_selected)
+        
+        self.all_btns.append((e_btn, "btn_exit"))
+        self.all_btns.append((t_btn, "btn_theme"))
+        self.all_btns.append((db_btn, "btn_debug"))
+        
+        e_btn.pack(side='right', padx=2)
+        t_btn.pack(side='right', padx=2)
+        db_btn.pack(side='right', padx=2)
+
+        ttk.Separator(right_f, orient='vertical').pack(side='right', fill='y', padx=8)
+
+        # Launcher
+        self.launcher_btn = ttk.Button(right_f, text=self._("btn_add_launcher"), command=self.toggle_launcher)
+        self.launcher_btn.pack(side='right', padx=2)
+        self.update_launcher_btn_text()
+
+        # Help
+        h_btn = ttk.Button(right_f, text=self._("help"), command=self.show_help, width=8)
+        self.all_btns.append((h_btn, "help"))
+        h_btn.pack(side='right', padx=2)
+
+        # Language Select
+        self.lang_var = tk.StringVar(value=self.current_lang.upper())
+        lang_cb = ttk.Combobox(right_f, textvariable=self.lang_var, 
+                               values=[l.upper() for l in self.langs], 
+                               state='readonly', width=4)
+        lang_cb.pack(side='right', padx=5)
+        lang_cb.bind('<<ComboboxSelected>>', self.change_lang)
 
         # ── Treeview ──
         pw = ttk.PanedWindow(self.root, orient='vertical')
@@ -102,11 +178,17 @@ class DDEVManager:
         lf = ttk.Frame(pw); pw.add(lf, weight=3)
         cols = ('nome', 'path', 'tipo', 'stato', 'url')
         self.tree = ttk.Treeview(lf, columns=cols, show='headings')
+        
+        self.headers_dict = {
+            'nome': 'col_name', 'path': 'col_path', 'tipo': 'col_type', 
+            'stato': 'col_status', 'url': 'col_url'
+        }
         for c in cols:
-            self.tree.heading(c, text=c.capitalize())
+            self.tree.heading(c, text=self._(self.headers_dict[c]))
             self.tree.column(c, width=100)
         self.tree.column('path', width=300)
         self.tree.column('url', width=200)
+        
         sc = ttk.Scrollbar(lf, orient='vertical', command=self.tree.yview)
         self.tree.configure(yscrollcommand=sc.set)
         self.tree.pack(side='left', fill='both', expand=True)
@@ -115,47 +197,176 @@ class DDEVManager:
         self.tree.bind('<Button-3>', self.show_context_menu)
 
         # ── Console ──
-        log_f = ttk.LabelFrame(pw, text="Output Console", padding=5)
-        pw.add(log_f, weight=1)
-        self.log_text = scrolledtext.ScrolledText(log_f, wrap='word', height=8, font=('monospace', 10))
+        self.log_f = ttk.LabelFrame(pw, text=self._("console_title"), padding=5)
+        self.translatable_labels.append((self.log_f, 'console_title'))
+        pw.add(self.log_f, weight=1)
+        self.log_text = scrolledtext.ScrolledText(self.log_f, wrap='word', height=8, font=('monospace', 10))
         self.log_text.pack(fill='both', expand=True)
 
         # ── Controlli Rapidi ──
-        ctrl = ttk.LabelFrame(self.root, text="Controlli Rapidi", padding=10)
-        ctrl.pack(fill='x', padx=10, pady=5)
-        for a in ['Start', 'Stop', 'Restart', 'Delete']:
-            b = self._reg_btn(ctrl, a, lambda x=a.lower(): self.project_action(x), side='left', padx=2)
-            self.btns[a.lower()] = b
-        ttk.Separator(ctrl, orient='vertical').pack(side='left', fill='y', padx=10)
-        self._reg_btn(ctrl, "🌐 Sito",       self.open_site,      side='left', padx=2)
-        self._reg_btn(ctrl, "🐘 Adminer",    self.open_adminer,   side='left', padx=2)
-        self._reg_btn(ctrl, "📂 PHPMyAdmin", self.open_pma,       side='left', padx=2)
-        self._reg_btn(ctrl, "📁 Cartella",   self.open_folder,    side='left', padx=2)
+        self.ctrl_f = ttk.LabelFrame(self.root, text=self._("section_quick_ctrls"), padding=10)
+        self.translatable_labels.append((self.ctrl_f, 'section_quick_ctrls'))
+        self.ctrl_f.pack(fill='x', padx=10, pady=5)
+        
+        for k, a in [("btn_start", 'start'), ("btn_stop", 'stop'), ("btn_restart", 'restart'), ("btn_delete", 'delete')]:
+            b = self._reg_btn(self.ctrl_f, k, lambda x=a: self.project_action(x), side='left', padx=2)
+            self.btns[a] = b
+            
+        ttk.Separator(self.ctrl_f, orient='vertical').pack(side='left', fill='y', padx=10)
+        self._reg_btn(self.ctrl_f, "btn_site",    self.open_site,      side='left', padx=2)
+        self._reg_btn(self.ctrl_f, "btn_adminer", self.open_adminer,   side='left', padx=2)
+        self._reg_btn(self.ctrl_f, "btn_pma",     self.open_pma,       side='left', padx=2)
+        self._reg_btn(self.ctrl_f, "btn_folder",  self.open_folder,    side='left', padx=2)
 
         # ── Status Bar ──
-        self.status = ttk.Label(self.root, text="Pronto", relief='sunken', anchor='w', padding=5)
+        self.status = ttk.Label(self.root, text=self._("status_ready"), relief='sunken', anchor='w', padding=5)
+        self.translatable_labels.append((self.status, 'status_ready'))
         self.status.pack(fill='x', side='bottom')
 
         # ── Context Menu ──
+        self.context_menu_items = [] # list of (index, tkey)
         self.context_menu = tk.Menu(self.root, tearoff=0)
-        self.context_menu.add_command(label="ℹ️ Dettagli", command=self.show_project_details)
+        self.context_menu.add_command(label=self._("ctx_details"), command=self.show_project_details)
+        self.context_menu_items.append((0, 'ctx_details'))
         self.context_menu.add_separator()
-        for lbl, act in [("▶️ Start", 'start'), ("⏹️ Stop", 'stop'), ("🔄 Restart", 'restart')]:
-            self.context_menu.add_command(label=lbl, command=lambda x=act: self.project_action(x))
+        
+        idx = 2
+        for tkey, act in [("ctx_start", 'start'), ("ctx_stop", 'stop'), ("ctx_restart", 'restart')]:
+            self.context_menu.add_command(label=self._(tkey), command=lambda x=act: self.project_action(x))
+            self.context_menu_items.append((idx, tkey))
+            idx += 1
+            
         self.context_menu.add_separator()
-        self.context_menu.add_command(label="🗑️ Rimuovi", command=lambda: self.project_action('delete'))
+        self.context_menu.add_command(label=self._("ctx_remove"), command=lambda: self.project_action('delete'))
+        self.context_menu_items.append((idx+1, 'ctx_remove'))
+
+    # ─── Language & Dynamic UI ───────────────────────────────────────────────
+    
+    def change_lang(self, event=None):
+        new_lang = self.lang_var.get().lower()
+        if new_lang != self.current_lang:
+            self.current_lang = new_lang
+            self.save_config()
+            self.retranslate_ui()
+
+    def retranslate_ui(self):
+        # Buttons
+        for b, tkey in self.all_btns:
+            b.config(text=self._(tkey))
+            
+        # Trees
+        for col, tkey in self.headers_dict.items():
+            self.tree.heading(col, text=self._(tkey))
+            
+        # LabelFrames and Status
+        for widget, tkey in self.translatable_labels:
+            if isinstance(widget, ttk.LabelFrame):
+                widget.config(text=self._(tkey))
+            else:
+                widget.config(text=self._(tkey))
+                
+        # Context Menu
+        for idx, tkey in self.context_menu_items:
+            self.context_menu.entryconfigure(idx, label=self._(tkey))
+
+        # Launcher Button
+        self.update_launcher_btn_text()
+
+    # ─── Launcher File ───────────────────────────────────────────────────────
+
+    def get_launcher_path(self):
+        return Path.home() / ".local" / "share" / "applications" / "ddevmanager.desktop"
+
+    def update_launcher_btn_text(self):
+        if self.get_launcher_path().exists():
+            self.launcher_btn.config(text=self._("btn_remove_launcher"))
+        else:
+            self.launcher_btn.config(text=self._("btn_add_launcher"))
+
+    def toggle_launcher(self):
+        lpath = self.get_launcher_path()
+        if lpath.exists():
+            # Rimuovi
+            try:
+                lpath.unlink()
+                self.log("🗑️ Launcher rimosso.", 'info')
+            except Exception as e:
+                self.log(f"Errore rimozione launcher: {e}", 'error')
+        else:
+            # Crea
+            try:
+                lpath.parent.mkdir(parents=True, exist_ok=True)
+                script_path = Path(__file__).resolve()
+                icon_path = (Path(__file__).parent / "icon.png").resolve()
+                
+                desktop_entry = f"[Desktop Entry]\n" \
+                                f"Name=DDEV Manager Pro\n" \
+                                f"Comment=Gestisci i progetti DDEV\n" \
+                                f"Exec=python3 {script_path}\n" \
+                                f"Icon={icon_path}\n" \
+                                f"Terminal=false\n" \
+                                f"Type=Application\n" \
+                                f"Categories=Development;\n" \
+                                f"StartupNotify=true\n"
+                                
+                with open(lpath, 'w', encoding='utf-8') as f:
+                    f.write(desktop_entry)
+                
+                lpath.chmod(0o755) # Make executable as needed
+                
+                # Try to update system db
+                subprocess.run(['update-desktop-database', str(lpath.parent)], capture_output=True)
+                self.log("🚀 Launcher creato con successo!", 'success')
+            except Exception as e:
+                self.log(f"Errore creazione launcher: {e}", 'error')
+                
+        self.update_launcher_btn_text()
+
+    # ─── Help Dialog ─────────────────────────────────────────────────────────
+
+    def show_help(self):
+        dlg = tk.Toplevel(self.root)
+        dlg.title(self._("help_title"))
+        dlg.geometry("550x380")
+        dlg.transient(self.root)
+        c = THEMES[self.current_theme]
+        dlg.configure(bg=c['bg'])
+        
+        f = ttk.Frame(dlg, padding=20)
+        f.pack(fill='both', expand=True)
+        
+        lbl = ttk.Label(f, text=self._("help_title"), font=('sans-serif', 14, 'bold'))
+        lbl.pack(pady=(0, 10))
+        
+        txt = scrolledtext.ScrolledText(f, wrap='word', bg=c['entry_bg'], fg=c['entry_fg'], font=('sans-serif', 11))
+        txt.insert('max', self._("help_text"))
+        txt.config(state='disabled')
+        txt.pack(fill='both', expand=True)
+        
+        ttk.Button(f, text=self._("dlg_det_btn_close"), command=dlg.destroy).pack(pady=10)
 
     # ─── UI State ────────────────────────────────────────────────────────────
 
-    def set_ui_busy(self, msg="Operazione in corso..."):
-        for b in self.all_btns:
-            b.config(state='disabled')
+    def set_ui_busy(self, msg=None):
+        if not msg: msg = self._("status_busy")
+        for b, _ in self.all_btns:
+            try: b.config(state='disabled')
+            except: pass
+        self.launcher_btn.config(state='disabled')
+        for b in self.btns.values():
+            try: b.config(state='disabled')
+            except: pass
         self.status.config(text=f"⏳ {msg}")
 
     def set_ui_idle(self):
-        for b in self.all_btns:
-            b.config(state='normal')
-        self.status.config(text="Pronto")
+        for b, _ in self.all_btns:
+            try: b.config(state='normal')
+            except: pass
+        self.launcher_btn.config(state='normal')
+        for b in self.btns.values():
+            try: b.config(state='normal')
+            except: pass
+        self.status.config(text=self._("status_ready"))
         self.refresh_list()
 
     # ─── Theme ───────────────────────────────────────────────────────────────
@@ -193,19 +404,18 @@ class DDEVManager:
     # ─── DDEV Commands ───────────────────────────────────────────────────────
 
     def ddev_poweroff(self):
-        if messagebox.askyesno("Poweroff", "Spegnere tutti i progetti e resettare il router DDEV?"):
+        if messagebox.askyesno(self._("msg_confirm"), self._("msg_poweroff")):
             def run():
-                self.root.after(0, lambda: self.set_ui_busy("DDEV Poweroff..."))
-                self.log("🛑 DDEV Poweroff in corso...")
+                self.root.after(0, lambda: self.set_ui_busy(self._("msg_poweroff_doing")))
+                self.log(f"🛑 {self._('msg_poweroff_doing')}")
                 subprocess.run(['ddev', 'poweroff'])
-                self.log("✅ Router resettato. Riavvia il progetto.", 'success')
+                self.log(self._("msg_poweroff_done"), 'success')
                 self.root.after(0, self.set_ui_idle)
             threading.Thread(target=run, daemon=True).start()
 
     # ─── URL Discovery ───────────────────────────────────────────────────────
 
     def get_service_url_from_env(self, container_name):
-        """DDEV 1.25: legge HTTPS_EXPOSE/HTTP_EXPOSE + VIRTUAL_HOST dalle env vars del container."""
         try:
             r = subprocess.run(
                 ['docker', 'inspect', '--format', '{{range .Config.Env}}{{.}}\n{{end}}', container_name],
@@ -255,12 +465,12 @@ class DDEVManager:
     def debug_selected(self):
         sel = self.get_selected()
         if not sel:
-            self.log("⚠️ Seleziona un progetto prima.", 'warning'); return
+            self.log(self._("msg_select_project"), 'warning'); return
         n, d = sel
         threading.Thread(target=self._run_debug, args=(n, d), daemon=True).start()
 
     def _run_debug(self, name, d):
-        self.root.after(0, lambda: self.set_ui_busy("Debug URL..."))
+        self.root.after(0, lambda: self.set_ui_busy(self._("msg_debug_doing")))
         self.log("=" * 30, 'info')
         self.log(f"DEBUG: {name}", 'warning')
         r = subprocess.run(['ddev', 'describe', '-j'], cwd=d['path'], capture_output=True, text=True)
@@ -268,7 +478,7 @@ class DDEVManager:
         status = (raw or {}).get('status', 'unknown')
         self.log(f"Status: {status}", 'info')
         if status != 'running':
-            self.log("⛔ Progetto non attivo! Avvialo prima.", 'error')
+            self.log(self._("msg_not_active"), 'error')
             self.log("=" * 30, 'info')
             self.root.after(0, self.set_ui_idle); return
         self.log(f"primary_url: {(raw or {}).get('primary_url', 'N/A')}")
@@ -317,12 +527,12 @@ class DDEVManager:
         def strip_ansi(text):
             return re.sub(r'(\x1b|\#)\[[0-9;]*m', '', text).strip()
 
-        nuovo_btn = next((b for b in self.all_btns if "Nuovo" in str(b.cget('text'))), None)
+        nuovo_btn = next((b for b, tk in self.all_btns if tk == "btn_new"), None)
         if nuovo_btn:
             nuovo_btn.config(state='disabled')
 
         dlg = tk.Toplevel(self.root)
-        dlg.title("Nuovo Progetto")
+        dlg.title(self._("dlg_new_title"))
         dlg.geometry("500x560")
         dlg.transient(self.root)
         dlg.grab_set()
@@ -334,7 +544,6 @@ class DDEVManager:
             dlg.destroy()
         dlg.protocol("WM_DELETE_WINDOW", on_close)
 
-        # StringVar per ogni campo — lettura sempre affidabile
         sv_path = tk.StringVar()
         sv_name = tk.StringVar()
         sv_type = tk.StringVar(value='php')
@@ -349,8 +558,7 @@ class DDEVManager:
             e.pack(fill='x', padx=20, pady=2)
             return e
 
-        # ── Percorso ──
-        ttk.Label(dlg, text="Percorso:").pack(anchor='w', padx=20, pady=(10, 0))
+        ttk.Label(dlg, text=self._("dlg_new_path")).pack(anchor='w', padx=20, pady=(10, 0))
         rf = ttk.Frame(dlg); rf.pack(fill='x', padx=20)
         tk.Entry(rf, textvariable=sv_path, bg=c['entry_bg'], fg=c['entry_fg'],
                  relief='flat', bd=5).pack(side='left', fill='x', expand=True)
@@ -362,31 +570,25 @@ class DDEVManager:
                 folder = Path(path).name.lower().replace(' ', '-')
                 if not sv_name.get():
                     sv_name.set(folder)
-                    # Auto-popola DB se ancora ai valori di default
                     if sv_dbn.get() == 'db': sv_dbn.set(folder[:16])
                     if sv_dbu.get() == 'db': sv_dbu.set(folder[:16])
-                    # Password: NON auto-riempita — rimane 'db' finché l'utente non la cambia
             dlg.lift(); dlg.focus_force()
 
         ttk.Button(rf, text="...", command=pick_dir).pack(side='right', padx=(4, 0))
 
-        # ── Campi ──
-        LabelEntry("Nome progetto (minuscolo, no spazi):", sv_name)
-        ttk.Label(dlg, text="Tipo:").pack(anchor='w', padx=20, pady=(6, 0))
+        LabelEntry(self._("dlg_new_name"), sv_name)
+        ttk.Label(dlg, text=self._("dlg_new_type")).pack(anchor='w', padx=20, pady=(6, 0))
         ttk.Combobox(dlg, textvariable=sv_type,
                      values=['php', 'laravel', 'wordpress', 'python'],
                      state='readonly').pack(fill='x', padx=20)
-        LabelEntry("DB Name:",     sv_dbn)
-        LabelEntry("User DB:",     sv_dbu)
-        LabelEntry("Password DB:", sv_dbp, show='')
+        LabelEntry(self._("dlg_new_dbn"),     sv_dbn)
+        LabelEntry(self._("dlg_new_dbu"),     sv_dbu)
+        LabelEntry(self._("dlg_new_dbp"),     sv_dbp, show='*')
 
-        # Forza nome DDEV-valido: solo lettere, cifre e trattini
         def on_name_changed(*_):
             import re as _re
             raw = sv_name.get()
-            # Sostituisce qualsiasi carattere non valido (punti, underscore, slash...) con '-'
             clean = _re.sub(r'[^a-z0-9-]', '-', raw.lower())
-            # Rimuove trattini multipli consecutivi
             clean = _re.sub(r'-+', '-', clean).strip('-')
             if raw != clean:
                 sv_name.set(clean)
@@ -402,7 +604,7 @@ class DDEVManager:
             user = sv_dbu.get().strip() or n or 'db'
             pwd  = sv_dbp.get().strip() or 'db'
             if not p or not n:
-                messagebox.showwarning("Attenzione", "Inserisci percorso e nome.", parent=dlg)
+                messagebox.showwarning(self._("msg_confirm"), self._("dlg_new_warn_fields"), parent=dlg)
                 return
             res = subprocess.run(
                 ['ddev', 'config', '--project-name', n, '--project-type', sv_type.get()],
@@ -417,20 +619,19 @@ class DDEVManager:
                 if nuovo_btn: nuovo_btn.config(state='normal')
                 dlg.destroy()
             else:
-                err = strip_ansi(res.stderr or res.stdout or "Errore sconosciuto")
+                err = strip_ansi(res.stderr or res.stdout or "Error")
                 messagebox.showerror("Errore DDEV", err, parent=dlg)
 
-        ttk.Button(dlg, text="✅ Crea Progetto", command=save).pack(pady=20)
+        ttk.Button(dlg, text=self._("dlg_new_btn_create"), command=save).pack(pady=20)
 
     def show_project_details(self):
-        """Mostra i dettagli del progetto selezionato in una finestra read-only."""
         sel = self.get_selected()
         if not sel:
-            self.log("⚠️ Seleziona un progetto dalla lista.", 'warning'); return
+            self.log(self._("msg_select_project"), 'warning'); return
         n, d = sel
         c = THEMES[self.current_theme]
         dlg = tk.Toplevel(self.root)
-        dlg.title(f"Dettagli: {n}")
+        dlg.title(self._("dlg_det_title") % n)
         dlg.geometry("460x360")
         dlg.transient(self.root)
         dlg.grab_set()
@@ -445,17 +646,17 @@ class DDEVManager:
                          readonlybackground=c['entry_bg'])
             e.pack(side='left', fill='x', expand=True)
 
-        ttk.Label(dlg, text=f"📋 Progetto: {n}",
+        ttk.Label(dlg, text=self._("dlg_det_proj") % n,
                   font=('sans-serif', 12, 'bold')).pack(pady=(14, 6))
         ttk.Separator(dlg, orient='horizontal').pack(fill='x', padx=20)
-        Row("Percorso",  d.get('path', '-'))
-        Row("Tipo",      d.get('tipo', '-'))
+        Row("Percorso" if self.current_lang=='it' else "Path",  d.get('path', '-'))
+        Row("Tipo" if self.current_lang=='it' else "Type",      d.get('tipo', '-'))
         Row("DB Name",   d.get('db_name', 'db'))
         Row("User DB",   d.get('db_user', 'db'))
         Row("Password",  d.get('db_pass', 'db'))
         Row("URL",       d.get('url', '-'))
         ttk.Separator(dlg, orient='horizontal').pack(fill='x', padx=20, pady=8)
-        ttk.Button(dlg, text="Chiudi", command=dlg.destroy).pack()
+        ttk.Button(dlg, text=self._("dlg_det_btn_close"), command=dlg.destroy).pack()
 
     def refresh_list(self):
         for i in self.tree.get_children():
@@ -465,10 +666,11 @@ class DDEVManager:
                 r = subprocess.run(['ddev', 'describe', '-j'], cwd=d['path'],
                                    capture_output=True, text=True, timeout=4)
                 raw = self.parse_ddev_json(r.stdout)
-                s = "🟢 Attivo" if raw and raw.get('status') == 'running' else "🔴 Stop"
+                on = raw and raw.get('status') == 'running'
+                s = "🟢 " + self._("btn_start") if on else "🔴 " + self._("btn_stop")
                 url = (raw or {}).get('primary_url', d.get('url', ''))
             except Exception:
-                s, url = "❓ Errore", d.get('url', '')
+                s, url = "❓ Error", d.get('url', '')
             self.tree.insert('', 'end', values=(n, d['path'], d['tipo'], s, url))
 
     def get_selected(self):
@@ -484,25 +686,11 @@ class DDEVManager:
             return
         n, d = sel
         if a == 'delete':
-            if messagebox.askyesno("Conferma", f"Rimuovere '{n}' dalla lista?"):
+            if messagebox.askyesno(self._("msg_confirm"), self._("msg_del_confirm") % n):
                 del self.projects[n]; self.save_config(); self.refresh_list()
             return
         self.set_ui_busy(f"{a.capitalize()} {n}...")
         threading.Thread(target=self.run_ddev_action, args=(a, n, d), daemon=True).start()
-
-    def bulk_action(self, a):
-        if not self.projects:
-            return
-        if not messagebox.askyesno("Conferma", f"{a.capitalize()} tutti i progetti?"):
-            return
-        def run():
-            self.root.after(0, lambda: self.set_ui_busy(f"{a.capitalize()} tutti..."))
-            for n, d in self.projects.items():
-                self.log(f"🚀 {a} {n}...")
-                subprocess.run(['ddev', a], cwd=d['path'])
-            self.log("✅ Completato.", 'success')
-            self.root.after(0, self.set_ui_idle)
-        threading.Thread(target=run, daemon=True).start()
 
     def run_ddev_action(self, a, n, d):
         try:
@@ -518,10 +706,6 @@ class DDEVManager:
                 db_name = d.get('db_name', 'db')
                 db_user = d.get('db_user', 'db')
                 db_pass = d.get('db_pass', 'db')
-                # Provisioning DB:
-                # - CREATE USER IF NOT EXISTS non aggiorna la password se l'utente esiste già
-                # - ALTER USER garantisce che la password sia sempre aggiornata
-                # - GRANT ALL WITH GRANT OPTION assegna privilegi completi per-database
                 sql = (
                     f"CREATE DATABASE IF NOT EXISTS `{db_name}`;"
                     f"CREATE USER IF NOT EXISTS '{db_user}'@'%' IDENTIFIED BY '{db_pass}';"
@@ -532,7 +716,7 @@ class DDEVManager:
                 r = subprocess.run(['ddev', 'mysql', '-e', sql], cwd=d['path'],
                                    capture_output=True, text=True)
                 if r.returncode == 0:
-                    self.log(f"✅ DB '{db_name}' | User '{db_user}' configurato.", 'success')
+                    self.log(self._("msg_db_configured") % (db_name, db_user), 'success')
                 else:
                     self.log(f"⚠️ SQL provisioning: {r.stderr.strip()}", 'warning')
                 self.log_service_urls(n, d)
@@ -550,7 +734,7 @@ class DDEVManager:
         if urls['adminer']:
             self.log(f"🐘 ADMINER:   {urls['adminer']}", 'info')
         else:
-            self.log("⚠️  ADMINER:   non trovato (add-on installato?)", 'warning')
+            self.log("⚠️  ADMINER:   non trovato", 'warning')
         if urls['phpmyadmin']:
             self.log(f"📂 PMA:       {urls['phpmyadmin']}", 'info')
         self.log("-" * 30, 'info')
@@ -562,11 +746,11 @@ class DDEVManager:
     def _open(self, svc, addon):
         sel = self.get_selected()
         if not sel:
-            self.log("⚠️ Seleziona prima un progetto.", 'warning'); return
+            self.log(self._("msg_select_project"), 'warning'); return
         n, d = sel
 
         def run():
-            self.root.after(0, lambda: self.set_ui_busy(f"Ricerca URL {svc}..."))
+            self.root.after(0, lambda: self.set_ui_busy(f"URL {svc}..."))
             try:
                 r = subprocess.run(['ddev', 'describe', '-j'], cwd=d['path'],
                                    capture_output=True, text=True, timeout=5)
@@ -574,11 +758,11 @@ class DDEVManager:
                 urls = self.get_urls(raw, n, project_path=d['path'])
                 url = urls.get(svc)
                 if url:
-                    self.log(f"🔗 Apertura: {url}", 'success')
+                    self.log(self._("msg_opening") % url, 'success')
                     webbrowser.open(url)
                 elif addon:
-                    if messagebox.askyesno("Add-on mancante", f"Installare {addon}?"):
-                        self.log(f"📦 Download {addon} (potrebbero volerci alcuni minuti)...", 'warning')
+                    if messagebox.askyesno(self._("msg_missing_addon"), self._("msg_install_addon") % addon):
+                        self.log(self._("msg_downloading") % addon, 'warning')
                         for cmd in [['ddev', 'get', f'ddev/{addon}'], ['ddev', 'restart']]:
                             label = 'Download' if 'get' in cmd else 'Restart'
                             self.log(f"▶ {label}...", 'info')
@@ -588,11 +772,11 @@ class DDEVManager:
                                 line = line.strip()
                                 if line: self.log(line)
                             p.wait()
-                        self.log("✅ Add-on installato!", 'success')
+                        self.log(self._("msg_addon_installed"), 'success')
                 else:
-                    self.log(f"⚠️  URL '{svc}' non trovato. Il progetto è avviato?", 'warning')
+                    self.log(f"⚠️  URL '{svc}' non trovato.", 'warning')
             except Exception as e:
-                self.log(f"Errore apertura {svc}: {e}", 'error')
+                self.log(self._("msg_err_opening") % (svc, e), 'error')
             finally:
                 self.root.after(0, self.set_ui_idle)
 
@@ -600,15 +784,14 @@ class DDEVManager:
 
     def open_site(self):    self._open('site', '')
     def open_adminer(self):
-        """Apre Adminer con il database del progetto pre-selezionato (?db=NOME)."""
         sel = self.get_selected()
         if not sel:
-            self.log("⚠️ Seleziona prima un progetto.", 'warning'); return
+            self.log(self._("msg_select_project"), 'warning'); return
         n, d = sel
         db_name = d.get('db_name', 'db')
 
         def run():
-            self.root.after(0, lambda: self.set_ui_busy("Apertura Adminer..."))
+            self.root.after(0, lambda: self.set_ui_busy("Adminer..."))
             try:
                 r = subprocess.run(['ddev', 'describe', '-j'], cwd=d['path'],
                                    capture_output=True, text=True, timeout=5)
@@ -616,23 +799,22 @@ class DDEVManager:
                 urls = self.get_urls(raw, n, project_path=d['path'])
                 base_url = urls.get('adminer')
                 if base_url:
-                    # Aggiungi il db corretto ai parametri URL di Adminer
                     sep = '&' if '?' in base_url else '?'
                     url = f"{base_url}{sep}db={db_name}"
-                    self.log(f"🔗 Apertura Adminer: {url}", 'success')
+                    self.log(self._("msg_opening") % url, 'success')
                     webbrowser.open(url)
                 else:
-                    if messagebox.askyesno("Add-on mancante", "Installare ddev-adminer?"):
-                        self.log("📦 Download ddev-adminer...")
+                    if messagebox.askyesno(self._("msg_missing_addon"), self._("msg_install_addon") % "ddev-adminer"):
+                        self.log(self._("msg_downloading") % "ddev-adminer")
                         for cmd in [['ddev', 'get', 'ddev/ddev-adminer'], ['ddev', 'restart']]:
                             p = subprocess.Popen(cmd, cwd=d['path'],
                                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                             for line in p.stdout:
                                 if line.strip(): self.log(line.strip())
                             p.wait()
-                        self.log("✅ Adminer installato!", 'success')
+                        self.log(self._("msg_addon_installed"), 'success')
             except Exception as e:
-                self.log(f"Errore Adminer: {e}", 'error')
+                self.log(self._("msg_err_opening") % ("Adminer", e), 'error')
             finally:
                 self.root.after(0, self.set_ui_idle)
         threading.Thread(target=run, daemon=True).start()
